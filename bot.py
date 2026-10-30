@@ -106,6 +106,7 @@ def main():
         rows.append([hhmm, s["name"], p["price"], p["change_pct"], p["volume"]])
 
         checks = []
+        tag = f"[{s.get('type', '보유')}] "
         if s.get("stop") and p["price"] <= s["stop"]:
             checks.append(("stop", f"🚨 {s['name']} 손절선 {s['stop']:,}원 이탈!\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%)"))
         if s.get("target") and p["price"] >= s["target"]:
@@ -118,7 +119,7 @@ def main():
         for key, msg in checks:
             k = f"{s['code']}_{key}"
             if k not in sent:  # 같은 알림은 하루 한 번만
-                msgs.append(msg)
+                msgs.append(tag + msg)
                 sent.append(k)
 
     json.dump(sent, open(alert_path, "w"))
