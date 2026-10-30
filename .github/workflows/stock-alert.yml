@@ -1,0 +1,60 @@
+name: stock-alert
+
+on:
+  schedule:
+    - cron: "*/10 0-5 * * 1-5"      # KST 09:00~14:50 평일 10분마다
+    - cron: "0,10,20,30 6 * * 1-5"  # KST 15:00~15:30
+    - cron: "40 6 * * 1-5"          # KST 15:40 장 마감 요약
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "check / summary / test"
+        default: "test"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stock-alert
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: .state
+          key: state-${{ github.run_id }}
+          restore-keys: state-
+
+      - name: Run bot
+        env:
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MODE: ${{ github.event.inputs.mode || (github.event.schedule == '40 6 * * 1-5' && 'summary' || 'check') }}
+        run: python bot.py
+
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .state
+          key: state-${{ github.run_id }}
+
+      - name: Save data
+        run: |
+          git config user.name "stock-bot"
+          git config user.email "stock-bot@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet || git commit -m "data $(date -u +%F_%H%M)"
+          git push
