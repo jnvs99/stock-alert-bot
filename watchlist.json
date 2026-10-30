@@ -17,6 +17,27 @@
       "stop": 180000,
       "target": null,
       "type": "보유"
+    },
+    {
+      "name": "삼성전자",
+      "code": "005930",
+      "stop": null,
+      "target": null,
+      "type": "관심"
+    },
+    {
+      "name": "HD현대중공업",
+      "code": "329180",
+      "stop": null,
+      "target": null,
+      "type": "관심"
+    },
+    {
+      "name": "신세계",
+      "code": "004170",
+      "stop": null,
+      "target": null,
+      "type": "관심"
     }
   ]
 }
