@@ -1,0 +1,10 @@
+{
+  "move_alert_pct": 5,
+  "indices": [
+    {"name": "코스피", "code": "0001"},
+    {"name": "코스닥", "code": "1001"}
+  ],
+  "stocks": [
+    {"name": "삼성에스디에스", "code": "018260", "stop": 180000, "target": null}
+  ]
+}
