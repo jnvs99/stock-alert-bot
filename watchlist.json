@@ -21,22 +21,22 @@
     {
       "name": "삼성전자",
       "code": "005930",
-      "stop": null,
-      "target": null,
+      "stop": 205000,
+      "target": 250000,
       "type": "관심"
     },
     {
       "name": "HD현대중공업",
       "code": "329180",
-      "stop": null,
-      "target": null,
+      "stop": 250000,
+      "target": 310000,
       "type": "관심"
     },
     {
       "name": "신세계",
       "code": "004170",
-      "stop": null,
-      "target": null,
+      "stop": 225000,
+      "target": 275000,
       "type": "관심"
     }
   ]
