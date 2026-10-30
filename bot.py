@@ -140,6 +140,17 @@ def main():
     for m in msgs:
         tg(m)
 
+    # 보낸 알림을 기록해서 Claude 체크인 때 읽을 수 있게 함
+    if msgs and mode == "check":
+        apath = f"data/alerts_{today}.csv"
+        anew = not os.path.exists(apath)
+        with open(apath, "a", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            if anew:
+                w.writerow(["time", "message"])
+            for m in msgs:
+                w.writerow([hhmm, m.replace("\n", " / ")])
+
 
 if __name__ == "__main__":
     main()
