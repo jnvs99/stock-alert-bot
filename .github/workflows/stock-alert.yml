@@ -8,8 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "check / summary / test"
+        description: "check / summary / test / message"
         default: "test"
+      message:
+        description: "mode=message일 때 보낼 텍스트"
+        default: ""
 
 permissions:
   contents: write
@@ -42,6 +45,7 @@ jobs:
           KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MESSAGE: ${{ github.event.inputs.message }}
           MODE: ${{ github.event.inputs.mode || (github.event.schedule == '43 6 * * 1-5' && 'summary' || 'check') }}
         run: python bot.py
 

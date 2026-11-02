@@ -84,6 +84,9 @@ def index_price(token, code):
 
 def main():
     mode = os.environ.get("MODE", "check")
+    if mode == "message":  # 텍스트를 그대로 텔레그램으로 전송
+        tg(os.environ.get("MESSAGE", "").replace("\\n", "\n"))
+        return
     now = datetime.datetime.now(KST)
     today = now.strftime("%Y-%m-%d")
     hhmm = now.strftime("%H:%M")
