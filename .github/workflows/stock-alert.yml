@@ -2,9 +2,9 @@ name: stock-alert
 
 on:
   schedule:
-    - cron: "*/10 0-5 * * 1-5"      # KST 09:00~14:50 평일 10분마다
-    - cron: "0,10,20,30 6 * * 1-5"  # KST 15:00~15:30
-    - cron: "40 6 * * 1-5"          # KST 15:40 장 마감 요약
+    - cron: "3-53/10 0-5 * * 1-5"    # KST 09:03~14:53 평일 10분마다 (정각 혼잡 회피)
+    - cron: "3,13,23,33 6 * * 1-5"  # KST 15:03~15:33
+    - cron: "43 6 * * 1-5"          # KST 15:43 장 마감 요약
   workflow_dispatch:
     inputs:
       mode:
@@ -42,7 +42,7 @@ jobs:
           KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          MODE: ${{ github.event.inputs.mode || (github.event.schedule == '40 6 * * 1-5' && 'summary' || 'check') }}
+          MODE: ${{ github.event.inputs.mode || (github.event.schedule == '43 6 * * 1-5' && 'summary' || 'check') }}
         run: python bot.py
 
       - uses: actions/cache/save@v4
