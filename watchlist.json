@@ -16,21 +16,27 @@
       "code": "005930",
       "stop": 200000,
       "target": 240000,
-      "type": "관심"
+      "type": "관심",
+      "entry_low": 210000,
+      "entry_high": 213000
     },
     {
       "name": "HD현대중공업",
       "code": "329180",
       "stop": 250000,
       "target": 310000,
-      "type": "관심"
+      "type": "관심",
+      "entry_low": 265000,
+      "entry_high": 275000
     },
     {
       "name": "신세계",
       "code": "004170",
       "stop": 225000,
       "target": 275000,
-      "type": "관심"
+      "type": "관심",
+      "entry_low": 235000,
+      "entry_high": 245000
     }
   ]
 }

@@ -112,6 +112,9 @@ def main():
         tag = f"[{s.get('type', '보유')}] "
         if s.get("stop") and p["price"] <= s["stop"]:
             checks.append(("stop", f"🚨 {s['name']} 손절선 {s['stop']:,}원 이탈!\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%)"))
+        lo, hi = s.get("entry_low"), s.get("entry_high")
+        if lo and hi and lo <= p["price"] <= hi:
+            checks.append(("entry", f"🟢 {s['name']} 진입 구간 도달 ({lo:,}~{hi:,}원)\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%) · 손절 {s.get('stop') or 0:,} / 목표 {s.get('target') or 0:,}"))
         if s.get("target") and p["price"] >= s["target"]:
             checks.append(("target", f"🎯 {s['name']} 목표가 {s['target']:,}원 도달!\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%)"))
         lim = cfg.get("move_alert_pct", 5)
