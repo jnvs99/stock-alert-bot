@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "check / summary / test / message"
+        description: "check / summary / test / message / day(장 마감까지 10분마다 반복)"
         default: "test"
       message:
         description: "mode=message일 때 보낼 텍스트"
@@ -18,12 +18,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: stock-alert
+  group: stock-alert-${{ github.event.inputs.mode == 'day' && 'day' || 'tick' }}
   cancel-in-progress: false
 
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
 
@@ -47,7 +48,26 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           MESSAGE: ${{ github.event.inputs.message }}
           MODE: ${{ github.event.inputs.mode || (github.event.schedule == '43 6 * * 1-5' && 'summary' || 'check') }}
-        run: python bot.py
+        run: |
+          if [ "$MODE" != "day" ]; then
+            python bot.py
+            exit 0
+          fi
+          # day 모드: 예약 실행이 밀리거나 빠져도 장 마감까지 10분마다 직접 반복
+          git config user.name "stock-bot"
+          git config user.email "stock-bot@users.noreply.github.com"
+          save() {
+            git add data/
+            git diff --cached --quiet || git commit -q -m "data $(date -u +%F_%H%M)"
+            for i in 1 2 3; do git pull --rebase -q origin main && git push -q && break; sleep 5; done
+          }
+          while [ "$(TZ=Asia/Seoul date +%H%M)" -le 1535 ]; do
+            MODE=check python bot.py || echo "check failed"
+            save
+            sleep 600
+          done
+          MODE=summary python bot.py || echo "summary failed"
+          save
 
       - uses: actions/cache/save@v4
         if: always()
