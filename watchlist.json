@@ -14,29 +14,29 @@
     {
       "name": "삼성전자",
       "code": "005930",
-      "stop": 200000,
-      "target": 240000,
-      "type": "관심",
-      "entry_low": 210000,
-      "entry_high": 213000
+      "stop": 212000,
+      "target": 245000,
+      "entry_low": 220000,
+      "entry_high": 223000,
+      "type": "관심"
     },
     {
       "name": "HD현대중공업",
       "code": "329180",
-      "stop": 250000,
-      "target": 310000,
-      "type": "관심",
-      "entry_low": 265000,
-      "entry_high": 275000
+      "stop": 258000,
+      "target": 315000,
+      "entry_low": 272000,
+      "entry_high": 280000,
+      "type": "관심"
     },
     {
-      "name": "신세계",
-      "code": "004170",
-      "stop": 225000,
-      "target": 275000,
-      "type": "관심",
-      "entry_low": 235000,
-      "entry_high": 245000
+      "name": "대한항공",
+      "code": "003490",
+      "stop": 26300,
+      "target": 31000,
+      "entry_low": 27300,
+      "entry_high": 27900,
+      "type": "관심"
     }
   ]
 }
