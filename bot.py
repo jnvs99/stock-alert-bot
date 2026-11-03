@@ -106,17 +106,17 @@ def index_price(token, code):
         return None  # 모의서버에서 지수 조회가 안 되면 건너뜀
 
 
-def scorecard(cfg, quotes, today):
+def scorecard(cfg, quotes, today, kospi_pct=None):
     """오늘 관심 종목 채점 → data/scorecard.csv 누적 + 텔레그램 요약 문구"""
     os.makedirs("data", exist_ok=True)
     path = "data/scorecard.csv"
     new = not os.path.exists(path)
-    lines = [f"📋 {today} 관심 종목 성적표"]
+    lines = [f"📋 {today} 관심 종목 성적표" + (f" (코스피 {kospi_pct:+.2f}%)" if kospi_pct is not None else "")]
     with open(path, "a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         if new:
             w.writerow(["date", "name", "code", "entry_low", "entry_high", "stop", "target",
-                        "open", "high", "low", "close", "touched", "fill", "close_pct", "stop_hit", "target_hit"])
+                        "open", "high", "low", "close", "touched", "fill", "close_pct", "stop_hit", "target_hit", "kospi_pct"])
         for s in cfg["stocks"]:
             if s.get("type") != "관심" or s["code"] not in quotes:
                 continue
@@ -125,10 +125,11 @@ def scorecard(cfg, quotes, today):
             if r is None:
                 continue
             w.writerow([today, s["name"], s["code"], s.get("entry_low"), s.get("entry_high"), s.get("stop"), s.get("target"),
-                        p["open"], p["high"], p["low"], p["price"], r["touched"], r["fill"], r["close_pct"], r["stop_hit"], r["target_hit"]])
+                        p["open"], p["high"], p["low"], p["price"], r["touched"], r["fill"], r["close_pct"], r["stop_hit"], r["target_hit"], kospi_pct])
             if r["touched"]:
                 extra = " · 손절선 터치" if r["stop_hit"] else (" · 목표가 터치" if r["target_hit"] else "")
-                lines.append(f"- {s['name']}: 진입 ✅ {r['fill']:,} → 종가 {p['price']:,} ({r['close_pct']:+.2f}%){extra}")
+                vs = f", 코스피 대비 {r['close_pct'] - kospi_pct:+.2f}%p" if kospi_pct is not None else ""
+                lines.append(f"- {s['name']}: 진입 ✅ {r['fill']:,} → 종가 {p['price']:,} ({r['close_pct']:+.2f}%{vs}){extra}")
             else:
                 side = "위" if p["low"] > s["entry_high"] else "아래"
                 lines.append(f"- {s['name']}: 진입 ❌ (하루 내내 구간 {side}) 종가 {p['price']:,}")
@@ -202,7 +203,8 @@ def main():
 
     if mode == "summary":
         try:
-            msgs.append(scorecard(cfg, quotes, today))
+            kospi = next((r[3] for r in rows if r[1] == "코스피"), None)
+            msgs.append(scorecard(cfg, quotes, today, kospi))
         except Exception as e:
             msgs.append(f"📋 성적표 계산 실패: {e}")
 
