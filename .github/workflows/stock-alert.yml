@@ -63,9 +63,10 @@ jobs:
             for i in 1 2 3; do git pull --rebase -q origin main && git push -q && break; sleep 5; done
           }
           now() { TZ=Asia/Seoul date +%H%M; }
+          # 실행 한도(6시간)는 작업 시작부터 계산되므로, 대기 시간도 포함해서 잼
+          START=$(date +%s)
           # 장 시작 전이면 09:01까지 대기
           while [ "$(now)" -lt 0901 ]; do sleep 60; done
-          START=$(date +%s)
           while [ "$(now)" -le 1535 ]; do
             MODE=check python bot.py || echo "check failed"
             save
