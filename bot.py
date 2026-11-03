@@ -125,7 +125,8 @@ def main():
         for key, msg in checks:
             k = f"{s['code']}_{key}"
             if k not in sent:  # 같은 알림은 하루 한 번만
-                msgs.append(tag + msg)
+                note = (s.get("notes") or {}).get(key) or s.get("note")
+                msgs.append(tag + msg + (f"\n💬 Claude: {note}" if note else ""))
                 sent.append(k)
 
     json.dump(sent, open(alert_path, "w"))
