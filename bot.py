@@ -179,7 +179,9 @@ def main():
             checks.append(("move", f"⚡ {s['name']} {word} {p['change_pct']:+.2f}%\n현재 {p['price']:,}원"))
 
         for key, msg in checks:
-            k = f"{s['code']}_{key}"
+            # 기준가를 장중에 바꾸면 같은 날이라도 새 기준으로 다시 알림
+            lv = {"entry": s.get("entry_low"), "stop": s.get("stop"), "target": s.get("target")}.get(key, "")
+            k = f"{s['code']}_{key}_{lv}"
             if k not in sent:  # 같은 알림은 하루 한 번만
                 note = (s.get("notes") or {}).get(key) or s.get("note")
                 msgs.append(tag + msg + (f"\n💬 Claude: {note}" if note else ""))
