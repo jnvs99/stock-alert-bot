@@ -168,6 +168,9 @@ def main():
         tag = f"[{s.get('type', '보유')}] "
         if s.get("stop") and p["price"] <= s["stop"]:
             checks.append(("stop", f"🚨 {s['name']} 손절선 {s['stop']:,}원 이탈!\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%)"))
+        # 보유 종목: 손절선 1% 위에 오면 미리 주의 알림
+        if s.get("type") == "보유" and s.get("stop") and s["stop"] < p["price"] <= s["stop"] * 1.01:
+            checks.append(("caution", f"🟠 {s['name']} 손절선 근접 ({s['stop']:,}원까지 {p['price'] - s['stop']:,}원)\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%)"))
         lo, hi = s.get("entry_low"), s.get("entry_high")
         if lo and hi and lo <= p["price"] <= hi:
             checks.append(("entry", f"🟢 {s['name']} 진입 구간 도달 ({lo:,}~{hi:,}원)\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%) · 손절 {s.get('stop') or 0:,} / 목표 {s.get('target') or 0:,}"))
@@ -180,7 +183,7 @@ def main():
 
         for key, msg in checks:
             # 기준가를 장중에 바꾸면 같은 날이라도 새 기준으로 다시 알림
-            lv = {"entry": s.get("entry_low"), "stop": s.get("stop"), "target": s.get("target")}.get(key, "")
+            lv = {"entry": s.get("entry_low"), "stop": s.get("stop"), "target": s.get("target"), "caution": s.get("stop")}.get(key, "")
             k = f"{s['code']}_{key}_{lv}"
             if k not in sent:  # 같은 알림은 하루 한 번만
                 note = (s.get("notes") or {}).get(key) or s.get("note")
