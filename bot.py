@@ -171,6 +171,11 @@ def main():
         # 보유 종목: 손절선 1% 위에 오면 미리 주의 알림
         if s.get("type") == "보유" and s.get("stop") and s["stop"] < p["price"] <= s["stop"] * 1.01:
             checks.append(("caution", f"🟠 {s['name']} 손절선 근접 ({s['stop']:,}원까지 {p['price'] - s['stop']:,}원)\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%)"))
+        # 보유 종목: 수익이 나면 손절가를 올리라고 알림 (trail: [{"at":가격,"stop":새 손절가}])
+        if s.get("type") == "보유":
+            for t in s.get("trail", []):
+                if p["price"] >= t["at"] and (s.get("stop") or 0) < t["stop"]:
+                    checks.append((f"trail{t['at']}", f"🔼 {s['name']} {t['at']:,}원 도달 → 손절가를 {t['stop']:,}원으로 올리세요\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%) · 토스 조건주문 손절가 수정"))
         lo, hi = s.get("entry_low"), s.get("entry_high")
         if lo and hi and lo <= p["price"] <= hi:
             checks.append(("entry", f"🟢 {s['name']} 진입 구간 도달 ({lo:,}~{hi:,}원)\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%) · 손절 {s.get('stop') or 0:,} / 목표 {s.get('target') or 0:,}"))
@@ -186,7 +191,7 @@ def main():
             lv = {"entry": s.get("entry_low"), "stop": s.get("stop"), "target": s.get("target"), "caution": s.get("stop")}.get(key, "")
             k = f"{s['code']}_{key}_{lv}"
             if k not in sent:  # 같은 알림은 하루 한 번만
-                note = (s.get("notes") or {}).get(key) or s.get("note")
+                note = (s.get("notes") or {}).get("trail" if key.startswith("trail") else key) or s.get("note")
                 msgs.append(tag + msg + (f"\n💬 Claude: {note}" if note else ""))
                 sent.append(k)
 
