@@ -25,6 +25,24 @@
       "name": "대한항공",
       "code": "003490",
       "type": "관심"
+    },
+    {
+      "name": "KODEX 레버리지",
+      "code": "122630",
+      "type": "지표",
+      "orb": true
+    },
+    {
+      "name": "KODEX 인버스",
+      "code": "114800",
+      "type": "지표",
+      "orb": true
+    },
+    {
+      "name": "KODEX 200선물인버스2X",
+      "code": "252670",
+      "type": "지표",
+      "orb": true
     }
   ]
 }

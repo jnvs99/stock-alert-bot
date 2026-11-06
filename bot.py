@@ -67,6 +67,8 @@ def stock_price(token, code):
         "open": int(o.get("stck_oprc") or 0),
         "high": int(o.get("stck_hgpr") or 0),
         "low": int(o.get("stck_lwpr") or 0),
+        # VWAP(당일 평균 체결가) = 누적 거래대금 / 누적 거래량
+        "vwap": round(int(o.get("acml_tr_pbmn") or 0) / int(o["acml_vol"])) if int(o.get("acml_vol") or 0) else 0,
     }
 
 
@@ -147,6 +149,9 @@ def main():
     cfg = json.load(open("watchlist.json", encoding="utf-8"))
     token = get_token()
 
+    # 시가 범위(09:00~09:30 고가·저가): 09:30까지 계속 갱신, 이후 고정
+    or_path = f"{STATE_DIR}/or_{today}.json"
+    orng = json.load(open(or_path)) if os.path.exists(or_path) else {}
     alert_path = f"{STATE_DIR}/alerts_{today}.json"
     sent = json.load(open(alert_path)) if os.path.exists(alert_path) else []
     rows, msgs = [], []
@@ -156,13 +161,15 @@ def main():
         p = index_price(token, idx["code"])
         time.sleep(0.6)
         if p:
-            rows.append([hhmm, idx["name"], p["price"], p["change_pct"], ""])
+            rows.append([hhmm, idx["name"], p["price"], p["change_pct"], "", "", "", ""])
 
     for s in cfg["stocks"]:
         p = stock_price(token, s["code"])
         quotes[s["code"]] = p
         time.sleep(0.6)
-        rows.append([hhmm, s["name"], p["price"], p["change_pct"], p["volume"]])
+        rows.append([hhmm, s["name"], p["price"], p["change_pct"], p["volume"], p["vwap"], p["high"], p["low"]])
+        if hhmm <= "09:30" and p["high"]:
+            orng[s["code"]] = [p["high"], p["low"]]
 
         checks = []
         tag = f"[{s.get('type', '보유')}] "
@@ -181,6 +188,16 @@ def main():
             checks.append(("entry", f"🟢 {s['name']} 진입 구간 도달 ({lo:,}~{hi:,}원)\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%) · 손절 {s.get('stop') or 0:,} / 목표 {s.get('target') or 0:,}"))
         if s.get("target") and p["price"] >= s["target"]:
             checks.append(("target", f"🎯 {s['name']} 목표가 {s['target']:,}원 도달!\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%)"))
+        # 시가 범위 돌파 신호 (orb: true 종목) — 09:30 이후, VWAP과 같은 방향일 때만
+        rng = orng.get(s["code"])
+        if s.get("orb") and rng and hhmm > "09:30" and p["vwap"]:
+            if p["price"] > rng[0] and p["price"] > p["vwap"]:
+                checks.append(("orb_up", f"📈 {s['name']} 시가 범위 상단 돌파 ({rng[0]:,}원)\n현재 {p['price']:,}원 · VWAP {p['vwap']:,} ({p['change_pct']:+.2f}%)"))
+            elif p["price"] < rng[1] and p["price"] < p["vwap"]:
+                checks.append(("orb_down", f"📉 {s['name']} 시가 범위 하단 이탈 ({rng[1]:,}원)\n현재 {p['price']:,}원 · VWAP {p['vwap']:,} ({p['change_pct']:+.2f}%)"))
+        # 단타 원칙: 보유 종목은 15:15에 당일 청산 알림
+        if s.get("type") == "보유" and hhmm >= "15:15":
+            checks.append(("eod", f"⏰ {s['name']} 당일 청산 시간 (15:15)\n현재 {p['price']:,}원 · 매수가 {s.get('buy_price') or 0:,} · 오버나이트 금지"))
         lim = cfg.get("move_alert_pct", 5)
         if abs(p["change_pct"]) >= lim:
             word = "급등" if p["change_pct"] > 0 else "급락"
@@ -196,6 +213,7 @@ def main():
                 sent.append(k)
 
     json.dump(sent, open(alert_path, "w"))
+    json.dump(orng, open(or_path, "w"))
 
     os.makedirs("data", exist_ok=True)
     path = f"data/{today}.csv"
@@ -203,7 +221,7 @@ def main():
     with open(path, "a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         if new:
-            w.writerow(["time", "name", "price", "change_pct", "volume"])
+            w.writerow(["time", "name", "price", "change_pct", "volume", "vwap", "high", "low"])
         w.writerows(rows)
 
     if mode in ("summary", "test"):
