@@ -46,6 +46,7 @@ jobs:
           KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
           MESSAGE: ${{ github.event.inputs.message }}
           MODE: ${{ github.event.inputs.mode || 'check' }}
           GH_TOKEN: ${{ github.token }}
@@ -67,6 +68,8 @@ jobs:
           START=$(date +%s)
           # 장 시작 전이면 09:01까지 대기
           while [ "$(now)" -lt 0901 ]; do sleep 60; done
+          # 08:45 premarket이 바꾼 watchlist(이슈 종목) 반영
+          git pull -q --rebase origin main || true
           while [ "$(now)" -le 1535 ]; do
             MODE=check python bot.py || echo "check failed"
             save
@@ -93,7 +96,7 @@ jobs:
         run: |
           git config user.name "stock-bot"
           git config user.email "stock-bot@users.noreply.github.com"
-          git add data/
+          git add data/ watchlist.json
           git diff --cached --quiet || git commit -m "data $(date -u +%F_%H%M)"
           for i in 1 2 3; do
             git pull --rebase -q origin main && git push -q && break

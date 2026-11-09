@@ -138,6 +138,137 @@ def scorecard(cfg, quotes, today, kospi_pct=None):
     return "\n".join(lines)
 
 
+DART_KEY = os.environ.get("DART_API_KEY", "")
+DART_WORDS = ["단일판매", "공급계약", "잠정", "영업실적", "자기주식취득", "자기주식 취득", "유상증자", "무상증자",
+              "최대주주변경", "최대주주 변경", "합병", "분할", "공개매수", "신규시설투자", "매출액또는손익구조",
+              "전환사채", "수주", "기술이전", "품목허가", "임상"]
+
+
+def daily_stats(token, code, days=45):
+    """일봉으로 20일선·ATR(14) 계산. 반환: {close, ma20, above20, atr, atr_pct}"""
+    end = datetime.datetime.now(KST)
+    start = end - datetime.timedelta(days=days)
+    r = requests.get(
+        f"{BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
+        headers=headers(token, "FHKST03010100"),
+        params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code,
+                "FID_INPUT_DATE_1": start.strftime("%Y%m%d"), "FID_INPUT_DATE_2": end.strftime("%Y%m%d"),
+                "FID_PERIOD_DIV_CODE": "D", "FID_ORG_ADJ_PRC": "0"},
+        timeout=10,
+    )
+    r.raise_for_status()
+    rows = [x for x in r.json().get("output2", []) if x.get("stck_clpr")]
+    rows.sort(key=lambda x: x["stck_bsop_date"])  # 오래된 날 → 최근
+    c = [int(x["stck_clpr"]) for x in rows]
+    h = [int(x["stck_hgpr"]) for x in rows]
+    l = [int(x["stck_lwpr"]) for x in rows]
+    if len(c) < 21:
+        return None
+    ma20 = sum(c[-20:]) / 20
+    trs = [max(h[i] - l[i], abs(h[i] - c[i - 1]), abs(l[i] - c[i - 1])) for i in range(1, len(c))]
+    atr = sum(trs[-14:]) / 14
+    return {"close": c[-1], "ma20": round(ma20), "above20": c[-1] > ma20,
+            "ma20_up": ma20 > sum(c[-21:-1]) / 20, "atr": round(atr), "atr_pct": round(atr / c[-1] * 100, 2)}
+
+
+def amount_rank(token, market="J", top=20):
+    """거래대금 상위 종목 (KIS 거래량순위, 거래금액순). 모의서버에서 막히면 빈 목록"""
+    try:
+        r = requests.get(
+            f"{BASE}/uapi/domestic-stock/v1/quotations/volume-rank",
+            headers=headers(token, "FHPST01710000"),
+            params={"FID_COND_MRKT_DIV_CODE": market, "FID_COND_SCR_DIV_CODE": "20171", "FID_INPUT_ISCD": "0000",
+                    "FID_DIV_CLS_CODE": "1", "FID_BLNG_CLS_CODE": "3", "FID_TRGT_CLS_CODE": "111111111",
+                    "FID_TRGT_EXLS_CLS_CODE": "0000000000", "FID_INPUT_PRICE_1": "", "FID_INPUT_PRICE_2": "",
+                    "FID_VOL_CNT": "", "FID_INPUT_DATE_1": ""},
+            timeout=10,
+        )
+        r.raise_for_status()
+        out = r.json().get("output") or []
+        return [{"code": x["mksc_shrn_iscd"], "name": x["hts_kor_isnm"], "price": int(x["stck_prpr"]),
+                 "chg": float(x["prdy_ctrt"]), "amount": int(x.get("acml_tr_pbmn") or 0)} for x in out[:top]]
+    except Exception as e:
+        print("amount_rank fail:", market, e)
+        return []
+
+
+def dart_issues():
+    """어제·오늘 상장사 주요 공시 (DART). 반환: [{code,name,title}]"""
+    if not DART_KEY:
+        return []
+    now = datetime.datetime.now(KST)
+    bgn = (now - datetime.timedelta(days=3 if now.weekday() == 0 else 1)).strftime("%Y%m%d")
+    out = []
+    for page in (1, 2, 3):
+        try:
+            r = requests.get("https://opendart.fss.or.kr/api/list.json",
+                             params={"crtfc_key": DART_KEY, "bgn_de": bgn, "end_de": now.strftime("%Y%m%d"),
+                                     "page_no": page, "page_count": 100}, timeout=15)
+            d = r.json()
+        except Exception as e:
+            print("dart fail:", e)
+            break
+        for x in d.get("list", []):
+            if x.get("corp_cls") in ("Y", "K") and x.get("stock_code") and any(w in x["report_nm"] for w in DART_WORDS):
+                if "기재정정" in x["report_nm"] or "첨부" in x["report_nm"]:
+                    continue
+                out.append({"code": x["stock_code"], "name": x["corp_name"], "title": x["report_nm"].strip()})
+        if page >= int(d.get("total_page", 1)):
+            break
+    seen, uniq = set(), []
+    for x in out:
+        if x["code"] not in seen:
+            seen.add(x["code"]); uniq.append(x)
+    return uniq
+
+
+def premarket(token, today):
+    """08:45 이슈 종목 후보: 공시 + 거래대금 상위(NXT 프리마켓 → 없으면 전일 KRX) + 일봉 추세"""
+    cand = {}
+    for x in dart_issues()[:40]:
+        cand.setdefault(x["code"], {"name": x["name"], "why": []})["why"].append("공시: " + x["title"])
+    rank = amount_rank(token, "NX") or amount_rank(token, "J")
+    for x in rank:
+        if abs(x["chg"]) >= 3:
+            cand.setdefault(x["code"], {"name": x["name"], "why": []})["why"].append(f"거래대금 상위 {x['chg']:+.1f}%")
+    scored = []
+    for code, v in list(cand.items())[:25]:
+        try:
+            st = daily_stats(token, code)
+        except Exception as e:
+            print("daily fail", code, e); st = None
+        time.sleep(0.6)
+        if not st:
+            continue
+        score = len(v["why"]) + (2 if st["above20"] and st["ma20_up"] else 1 if st["above20"] else 0)
+        scored.append({"code": code, "name": v["name"], "why": " / ".join(v["why"]), **st, "score": score})
+    scored.sort(key=lambda x: -x["score"])
+    os.makedirs("data", exist_ok=True)
+    with open(f"data/premarket_{today}.csv", "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["code", "name", "why", "close", "ma20", "above20", "ma20_up", "atr", "atr_pct", "score"])
+        for x in scored:
+            w.writerow([x["code"], x["name"], x["why"], x["close"], x["ma20"], x["above20"], x["ma20_up"], x["atr"], x["atr_pct"], x["score"]])
+    picks = [x for x in scored if x["above20"]][:5]
+    cfg = json.load(open("watchlist.json", encoding="utf-8"))
+    cfg["stocks"] = [s for s in cfg["stocks"] if s.get("type") != "이슈"]
+    have = {s["code"] for s in cfg["stocks"]}
+    for x in picks:
+        if x["code"] not in have:
+            cfg["stocks"].append({"name": x["name"], "code": x["code"], "type": "이슈", "orb": True,
+                                  "notes": {"orb_up": f"이슈 종목 시가 범위 돌파. 근거: {x['why'][:60]}. ATR {x['atr_pct']}%. 손절은 시가 범위 중간."}})
+    json.dump(cfg, open("watchlist.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    lines = [f"🔎 {today} 오늘의 이슈 종목 후보 (08:45)"]
+    for x in scored[:8]:
+        trend = "20일선↑" if x["above20"] and x["ma20_up"] else ("20일선 위" if x["above20"] else "20일선 아래❌")
+        lines.append(f"- {x['name']}({x['code']}) {trend} · ATR {x['atr_pct']}% · {x['why'][:50]}")
+    if not scored:
+        lines.append("- 후보 없음 (공시·거래대금 조회 결과 없음)")
+    lines.append(f"👀 시가 범위 감시 추가: {', '.join(x['name'] for x in picks) or '없음'}")
+    tg("\n".join(lines))
+    print("\n".join(lines))
+
+
 def main():
     mode = os.environ.get("MODE", "check")
     if mode == "message":  # 텍스트를 그대로 텔레그램으로 전송
@@ -146,8 +277,11 @@ def main():
     now = datetime.datetime.now(KST)
     today = now.strftime("%Y-%m-%d")
     hhmm = now.strftime("%H:%M")
-    cfg = json.load(open("watchlist.json", encoding="utf-8"))
     token = get_token()
+    if mode == "premarket":
+        premarket(token, today)
+        return
+    cfg = json.load(open("watchlist.json", encoding="utf-8"))
 
     # 시가 범위(09:00~09:30 고가·저가): 09:30까지 계속 갱신, 이후 고정
     or_path = f"{STATE_DIR}/or_{today}.json"
@@ -210,6 +344,14 @@ def main():
             if k not in sent:  # 같은 알림은 하루 한 번만
                 note = (s.get("notes") or {}).get("trail" if key.startswith("trail") else key) or s.get("note")
                 msgs.append(tag + msg + (f"\n💬 Claude: {note}" if note else ""))
+                sent.append(k)
+
+    if mode == "check" and "09:05" <= hhmm <= "14:30":
+        mine = {s["code"] for s in cfg["stocks"]}
+        for i, x in enumerate(amount_rank(token, "J", 15)):
+            k = f"surge_{x['code']}"
+            if x["code"] not in mine and abs(x["chg"]) >= 5 and k not in sent:
+                msgs.append(f"🔥 거래대금 상위 {i+1}위 신규: {x['name']}({x['code']}) {x['chg']:+.2f}% · {x['price']:,}원 · 대금 {x['amount']//100000000:,}억\n💬 Claude: 이슈 확인 전 추격 X. 캡처 보내 주시면 시가 범위·VWAP로 판단")
                 sent.append(k)
 
     json.dump(sent, open(alert_path, "w"))
