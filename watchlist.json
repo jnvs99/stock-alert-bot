@@ -25,7 +25,7 @@
       "name": "KODEX 레버리지",
       "code": "122630",
       "type": "지표",
-      "orb": false
+      "orb": true
     },
     {
       "name": "KODEX 인버스",
@@ -41,21 +41,17 @@
       "name": "KODEX 200선물인버스2X",
       "code": "252670",
       "type": "지표",
-      "orb": true,
+      "orb": false,
       "notes": {
         "orb_up": "",
         "orb_down": ""
       }
     },
     {
-      "name": "한진칼",
-      "code": "180640",
-      "type": "관심"
-    },
-    {
       "name": "TIGER 반도체TOP10레버리지",
       "code": "488080",
-      "type": "지표"
+      "type": "지표",
+      "orb": true
     },
     {
       "name": "TIGER 2차전지TOP10레버리지",
@@ -70,7 +66,8 @@
     {
       "name": "KODEX 반도체레버리지",
       "code": "494310",
-      "type": "지표"
+      "type": "지표",
+      "orb": true
     },
     {
       "name": "KODEX 바이오",
