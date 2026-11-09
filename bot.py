@@ -184,7 +184,10 @@ def amount_rank(token, market="J", top=20):
             timeout=10,
         )
         r.raise_for_status()
-        out = r.json().get("output") or []
+        js = r.json()
+        out = js.get("output") or []
+        with open("data/rank_debug.txt", "a", encoding="utf-8") as f:
+            f.write(f"{datetime.datetime.now(KST):%m-%d %H:%M} {market} rt={js.get('rt_cd')} msg={js.get('msg1')} n={len(out)} first={out[:1]}\n")
         return [{"code": x["mksc_shrn_iscd"], "name": x["hts_kor_isnm"], "price": int(x["stck_prpr"]),
                  "chg": float(x["prdy_ctrt"]), "amount": int(x.get("acml_tr_pbmn") or 0)} for x in out[:top]]
     except Exception as e:
