@@ -336,7 +336,7 @@ def main():
         if s.get("type") == "보유" and hhmm >= "15:15":
             checks.append(("eod", f"⏰ {s['name']} 당일 청산 시간 (15:15)\n현재 {p['price']:,}원 · 매수가 {s.get('buy_price') or 0:,} · 오버나이트 금지"))
         lim = cfg.get("move_alert_pct", 5)
-        if abs(p["change_pct"]) >= lim:
+        if abs(p["change_pct"]) >= lim and s.get("type", "보유") in ("보유", "관심"):
             word = "급등" if p["change_pct"] > 0 else "급락"
             checks.append(("move", f"⚡ {s['name']} {word} {p['change_pct']:+.2f}%\n현재 {p['price']:,}원"))
 
@@ -346,14 +346,21 @@ def main():
             k = f"{s['code']}_{key}_{lv}"
             if k not in sent:  # 같은 알림은 하루 한 번만
                 note = (s.get("notes") or {}).get("trail" if key.startswith("trail") else key) or s.get("note")
+                if key == "caution":
+                    note = f"손절선 근접. 조건주문 손절가({s['stop']:,}) 걸려 있는지 확인. 추가 매수 X. 계획 손절가 외 즉석 정리 X."
                 msgs.append(tag + msg + (f"\n💬 Claude: {note}" if note else ""))
                 sent.append(k)
 
-    if mode == "check" and "09:05" <= hhmm <= "14:30":
+    if mode == "check" and "09:30" <= hhmm <= "14:30":
         mine = {s["code"] for s in cfg["stocks"]}
+        etf = ("KODEX", "TIGER", "ACE", "RISE", "SOL", "PLUS", "KOSEF", "HANARO", "KIWOOM", "1Q", "미래에셋")
+        n_surge = 0
         for i, x in enumerate(amount_rank(token, "J", 15)):
             k = f"surge_{x['code']}"
-            if x["code"] not in mine and abs(x["chg"]) >= 5 and k not in sent:
+            if n_surge >= 2 or x["name"].startswith(etf):
+                continue
+            if x["code"] not in mine and abs(x["chg"]) >= 7 and k not in sent:
+                n_surge += 1
                 msgs.append(f"🔥 거래대금 상위 {i+1}위 신규: {x['name']}({x['code']}) {x['chg']:+.2f}% · {x['price']:,}원 · 대금 {x['amount']//100000000:,}억\n💬 Claude: 이슈 확인 전 추격 X. 캡처 보내 주시면 시가 범위·VWAP로 판단")
                 sent.append(k)
 
