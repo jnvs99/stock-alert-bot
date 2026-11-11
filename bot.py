@@ -585,7 +585,11 @@ def main():
     cfg = json.load(open("watchlist.json", encoding="utf-8"))
     plans_path = f"{STATE_DIR}/plans_{today}.json"
     plans = json.load(open(plans_path)) if os.path.exists(plans_path) else {}
-    pre_msgs = tg_commands(today, hhmm, cfg, plans) if mode == "check" else []
+    pre_msgs = tg_commands(today, hhmm, cfg, plans) if mode in ("check", "cmd") else []
+    if mode == "cmd":  # 장 밖에서 텔레그램 명령만 처리
+        for m in pre_msgs:
+            tg(m)
+        return
     pos = load_pos()
     apply_positions(cfg, pos)
 
