@@ -312,8 +312,8 @@ def main():
         tag = f"[{s.get('type', '보유')}] "
         if s.get("stop") and p["price"] <= s["stop"]:
             checks.append(("stop", f"🚨 {s['name']} 손절선 {s['stop']:,}원 이탈!\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%)"))
-        # 보유 종목: 손절선 1% 위에 오면 미리 주의 알림
-        if s.get("type") == "보유" and s.get("stop") and s["stop"] < p["price"] <= s["stop"] * 1.01:
+        # 보유 종목: 손절선 1% 위에 오면 미리 주의 알림 (손절가를 본전 이상으로 올린 뒤에는 생략)
+        if s.get("type") == "보유" and s.get("stop") and s["stop"] < s.get("buy_price", s["stop"] + 1) and s["stop"] < p["price"] <= s["stop"] * 1.01:
             checks.append(("caution", f"🟠 {s['name']} 손절선 근접 ({s['stop']:,}원까지 {p['price'] - s['stop']:,}원)\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%)"))
         # 보유 종목: 수익이 나면 손절가를 올리라고 알림 (trail: [{"at":가격,"stop":새 손절가}])
         if s.get("type") == "보유":
