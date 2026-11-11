@@ -321,6 +321,75 @@ def trail_for(entry, stop, etf):
             {"at": rnd(entry + 1.5 * R, t, True), "stop": rnd(entry + 0.5 * R, t)}]
 
 
+def minute_bars(token, code, hhmmss):
+    """당일 1분봉 최근 30개 (오래된 것 → 최근 순서)"""
+    r = requests.get(
+        f"{BASE}/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
+        headers=headers(token, "FHKST03010200"),
+        params={"FID_ETC_CLS_CODE": "", "FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code,
+                "FID_INPUT_HOUR_1": hhmmss, "FID_PW_DATA_INCU_YN": "Y"},
+        timeout=10,
+    )
+    r.raise_for_status()
+    out = r.json().get("output2") or []
+    bars = [{"t": x["stck_cntg_hour"], "o": int(x["stck_oprc"]), "h": int(x["stck_hgpr"]),
+             "l": int(x["stck_lwpr"]), "c": int(x["stck_prpr"]), "v": int(x.get("cntg_vol") or 0)} for x in out]
+    return list(reversed(bars))
+
+
+def rsi(closes, n=14):
+    if len(closes) <= n:
+        return None
+    g = l = 0.0
+    for a, b in zip(closes[:n], closes[1:n + 1]):
+        d = b - a
+        g += max(d, 0); l += max(-d, 0)
+    g /= n; l /= n
+    for a, b in zip(closes[n:], closes[n + 1:]):
+        d = b - a
+        g = (g * (n - 1) + max(d, 0)) / n
+        l = (l * (n - 1) + max(-d, 0)) / n
+    return 100.0 if l == 0 else round(100 - 100 / (1 + g / l), 1)
+
+
+def ema(xs, n):
+    k, e, out = 2 / (n + 1), xs[0], []
+    for x in xs:
+        e = x * k + e * (1 - k)
+        out.append(e)
+    return out
+
+
+def macd_hist(closes):
+    if len(closes) < 26:
+        return None, None
+    m = [a - b for a, b in zip(ema(closes, 12), ema(closes, 26))]
+    sig = ema(m, 9)
+    h = [a - b for a, b in zip(m, sig)]
+    return round(h[-1], 1), round(h[-2], 1)
+
+
+def bar_view(token, code, hhmm):
+    """1분봉 요약: RSI·MACD 막대·최근 3봉 색"""
+    try:
+        bars = minute_bars(token, code, hhmm.replace(":", "") + "00")
+    except Exception:
+        return None
+    if len(bars) < 15:
+        return None
+    cl = [b["c"] for b in bars]
+    h1, h0 = macd_hist(cl)
+    colors = "".join("🟥" if b["c"] > b["o"] else ("🟦" if b["c"] < b["o"] else "⬜") for b in bars[-3:])
+    return {"rsi": rsi(cl), "macd": h1, "macd_prev": h0, "last3": colors, "n": len(bars)}
+
+
+def view_text(v):
+    if not v:
+        return ""
+    mac = "" if v["macd"] is None else f" · MACD막대 {v['macd']:+}({'↑' if v['macd'] > (v['macd_prev'] or 0) else '↓'})"
+    return f"\n1분봉 최근 3개 {v['last3']} · RSI {v['rsi']}{mac}"
+
+
 def make_plan(s, p, rng, cash):
     """시가 범위 상단 돌파 후 2~3분 유지됐을 때의 진입 계획 (롱만)"""
     etf = is_etf(s["name"])
@@ -502,6 +571,17 @@ def main():
     if mode == "premarket":
         premarket(token, today)
         return
+    if mode == "minutetest":  # 1분봉 API 동작 확인용
+        os.makedirs("data", exist_ok=True)
+        with open("data/minute_debug.txt", "a", encoding="utf-8") as f:
+            for code in ("122630", "114800", "005930"):
+                try:
+                    b = minute_bars(token, code, now.strftime("%H%M%S") if hhmm < "15:30" else "153000")
+                    f.write(f"{today} {hhmm} {code} n={len(b)} first={b[:1]} last={b[-1:]} view={bar_view(token, code, hhmm if hhmm < '15:30' else '15:30')}\n")
+                except Exception as e:
+                    f.write(f"{today} {hhmm} {code} ERROR {e}\n")
+                time.sleep(0.6)
+        return
     cfg = json.load(open("watchlist.json", encoding="utf-8"))
     plans_path = f"{STATE_DIR}/plans_{today}.json"
     plans = json.load(open(plans_path)) if os.path.exists(plans_path) else {}
@@ -597,7 +677,9 @@ def main():
                     msgs.append(f"[{s.get('type')}] ⏸ {s['name']} 돌파 유지 확인, 하지만 진입 보류: " + " / ".join(why) + f"\n현재 {p['price']:,}원")
                 else:
                     plans[s["code"]] = pl
-                    msgs.append(f"[{s.get('type')}] ✅ {s['name']} 돌파 2분 이상 유지 → 진입 가능\n현재 {p['price']:,}원 · VWAP {p['vwap']:,}\n" + plan_text(pl))
+                    v = bar_view(token, s["code"], hhmm)
+                    hot = " ⚠️ RSI 80 이상(과열) → 지정가로 눌림 대기" if v and v["rsi"] and v["rsi"] >= 80 else ""
+                    msgs.append(f"[{s.get('type')}] ✅ {s['name']} 돌파 2분 이상 유지 → 진입 가능\n현재 {p['price']:,}원 · VWAP {p['vwap']:,}{view_text(v)}{hot}\n" + plan_text(pl))
             elif not above and pd:
                 pending.pop(s["code"], None)
                 if p["price"] <= rng[0] and f"{s['code']}_fake" not in sent and f"{s['code']}_confirm" not in sent:
