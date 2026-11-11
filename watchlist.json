@@ -35,14 +35,9 @@
       },
       "buy_price": 59190,
       "qty": 7,
-      "stop": 59190,
+      "stop": 59880,
       "target": 61950,
-      "trail": [
-        {
-          "at": 61260,
-          "stop": 59880
-        }
-      ]
+      "trail": []
     },
     {
       "name": "KODEX 인버스",
