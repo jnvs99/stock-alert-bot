@@ -103,7 +103,8 @@ def index_price(token, code):
         )
         r.raise_for_status()
         o = r.json()["output"]
-        return {"price": float(o["bstp_nmix_prpr"]), "change_pct": float(o["bstp_nmix_prdy_ctrt"])}
+        return {"price": float(o["bstp_nmix_prpr"]), "change_pct": float(o["bstp_nmix_prdy_ctrt"]),
+                "high": float(o.get("bstp_nmix_hgpr") or 0), "low": float(o.get("bstp_nmix_lwpr") or 0)}
     except Exception:
         return None  # 모의서버에서 지수 조회가 안 되면 건너뜀
 
@@ -272,6 +273,223 @@ def premarket(token, today):
     print("\n".join(lines))
 
 
+# ───────── 단타 보조: 호가 단위·진입 계획·포지션·텔레그램 명령 ─────────
+ETF_PREFIX = ("KODEX", "TIGER", "ACE", "RISE", "SOL", "PLUS", "KOSEF", "HANARO", "KIWOOM", "1Q", "미래에셋")
+POS_PATH = "positions.json"
+TRADES_PATH = "data/trades.csv"
+RISK_PER_TRADE = 10000
+DAY_LIMIT, WEEK_LIMIT, MAX_ENTRIES = -20000, -50000, 2
+# 인버스·레버리지 ETF는 지수 조건도 같이 본다: (지수코드, "below_low"|"above_mid")
+INDEX_COND = {"114800": ("0001", "below_low"), "252670": ("0001", "below_low"),
+              "122630": ("0001", "above_mid"), "233740": ("1001", "above_mid")}
+
+
+def is_etf(name):
+    return name.startswith(ETF_PREFIX)
+
+
+def tick(price, etf=False):
+    if etf:
+        return 1 if price < 2000 else 5
+    for lim, t in ((2000, 1), (5000, 5), (20000, 10), (50000, 50), (200000, 100), (500000, 500)):
+        if price < lim:
+            return t
+    return 1000
+
+
+def rnd(x, t, up=False):
+    import math
+    return int((math.ceil if up else math.floor)(x / t) * t)
+
+
+def load_pos():
+    if os.path.exists(POS_PATH):
+        return json.load(open(POS_PATH, encoding="utf-8"))
+    return {"cash": 1100000, "positions": {}}
+
+
+def save_pos(d):
+    json.dump(d, open(POS_PATH, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+
+
+def trail_for(entry, stop, etf):
+    R = entry - stop
+    t = tick(entry, etf)
+    if R / entry < 0.015:  # 1R이 작은 종목은 +1.5R에서 본전 (플레이북 규칙 11)
+        return [{"at": rnd(entry + 1.5 * R, t, True), "stop": entry}]
+    return [{"at": rnd(entry + R, t, True), "stop": entry},
+            {"at": rnd(entry + 1.5 * R, t, True), "stop": rnd(entry + 0.5 * R, t)}]
+
+
+def make_plan(s, p, rng, cash):
+    """시가 범위 상단 돌파 후 2~3분 유지됐을 때의 진입 계획 (롱만)"""
+    etf = is_etf(s["name"])
+    t = tick(p["price"], etf)
+    hi, lo = rng
+    # 돌파가 근처에서만 산다(플레이북 규칙 12): 돌파가 +0.5% 넘게 올라가 있으면 돌파가 +0.3% 지정가로 대기
+    chase = p["price"] > hi * 1.005
+    entry = rnd(hi * 1.003, t, True) if chase else max(p["price"], hi + t)
+    entry = rnd(entry, t, True)
+    width = (hi - lo) / hi if hi else 0
+    if etf or width <= 0.03:
+        stop = lo - tick(lo, etf)
+    else:  # 범위가 넓으면 중간값
+        stop = rnd((hi + lo) / 2, tick(lo, etf))
+    R = entry - stop
+    if R <= 0:
+        return None
+    qty = min(RISK_PER_TRADE // R, int(cash * 0.5) // entry)
+    if qty < 1:
+        return None
+    target = rnd(entry + 2 * R, t, True)
+    return {"code": s["code"], "name": s["name"], "entry": entry, "stop": stop, "target": target,
+            "qty": int(qty), "R": R, "risk": int(qty * R), "trail": trail_for(entry, stop, etf), "chase": chase}
+
+
+def plan_text(pl):
+    lines = [f"진입가(지정가) {pl['entry']:,}원 · {pl['qty']}주 · 손절 {pl['stop']:,} · 익절 {pl['target']:,}",
+             f"1R {pl['R']:,}원 · 위험 약 {pl['risk']:,}원"]
+    for tr in pl["trail"]:
+        lines.append(f"🔼 {tr['at']:,} 도달 → 손절 {tr['stop']:,}")
+    if pl.get("chase"):
+        lines.append("⚠️ 이미 돌파가보다 많이 올라 있음 → 위 지정가로 걸고 10분 안에 안 사지면 취소(쫓지 않기)")
+    lines.append(f"체결되면 텔레그램에: /buy {pl['code']} {pl['entry']} {pl['qty']}")
+    return "\n".join(lines)
+
+
+def read_trades():
+    if not os.path.exists(TRADES_PATH):
+        return []
+    return list(csv.DictReader(open(TRADES_PATH, encoding="utf-8")))
+
+
+def pnl_summary(today):
+    d = datetime.date.fromisoformat(today)
+    monday = (d - datetime.timedelta(days=d.weekday())).isoformat()
+    tr = read_trades()
+    day = sum(int(x["pnl"]) for x in tr if x["date"] == today)
+    week = sum(int(x["pnl"]) for x in tr if monday <= x["date"] <= today)
+    return day, week
+
+
+def apply_positions(cfg, pos):
+    """positions.json의 보유 내역을 watchlist에 덮어씀 (봇과 Claude가 같은 파일을 덜 겹치게 수정)"""
+    by = {s["code"]: s for s in cfg["stocks"]}
+    for code, h in pos.get("positions", {}).items():
+        s = by.get(code)
+        if not s:
+            s = {"name": h["name"], "code": code}
+            cfg["stocks"].append(s)
+            by[code] = s
+        s.update({"type": "보유", "buy_price": h["buy_price"], "qty": h["qty"], "stop": h["stop"],
+                  "target": h["target"], "trail": h.get("trail", []), "orb": False})
+        s.setdefault("notes", {})
+        s["notes"] = dict(s["notes"], caution="", trail="조건주문 손절가를 이 가격으로 수정(익절은 그대로). 수정 후 /stop 코드 가격",
+                          target="🎯 익절 조건주문 체결 확인. 매도 후 /sell 코드 가격",
+                          stop="손절 체결 확인. 매도 후 /sell 코드 가격. 오늘 이 종목 재매수 금지",
+                          eod="15:15 당일 청산: 남은 수량 시장가 정리 후 /sell 코드 가격")
+
+
+def tg_commands(today, hhmm, cfg, plans):
+    """텔레그램으로 받은 /buy /sell /stop /status 처리 (본세 채팅방 메시지만)"""
+    off_path = f"{STATE_DIR}/tg_offset.json"
+    off = json.load(open(off_path))["offset"] if os.path.exists(off_path) else 0
+    try:
+        r = requests.get(f"https://api.telegram.org/bot{TG_TOKEN}/getUpdates",
+                         params={"offset": off + 1, "timeout": 0}, timeout=10)
+        ups = r.json().get("result", [])
+    except Exception:
+        return []
+    out, changed = [], False
+    pos = load_pos()
+    names = {s["code"]: s["name"] for s in cfg["stocks"]}
+    nowts = time.time()
+    for u in ups:
+        off = max(off, u["update_id"])
+        m = u.get("message") or {}
+        if str(m.get("chat", {}).get("id")) != str(TG_CHAT) or nowts - m.get("date", 0) > 900:
+            continue
+        parts = (m.get("text") or "").strip().split()
+        if not parts:
+            continue
+        cmd = parts[0].lower().split("@")[0]
+        try:
+            if cmd in ("/buy", "매수"):
+                code, price, qty = parts[1], int(parts[2].replace(",", "")), int(parts[3])
+                pl = plans.get(code)
+                stop = int(parts[4].replace(",", "")) if len(parts) > 4 else (pl or {}).get("stop")
+                if not stop:
+                    out.append(f"❓ {code} 손절가를 모르겠어요. /buy {code} {price} {qty} 손절가 익절가 형식으로 보내 주세요")
+                    continue
+                R = price - stop
+                name = names.get(code, (pl or {}).get("name", code))
+                etf = is_etf(name)
+                target = int(parts[5].replace(",", "")) if len(parts) > 5 else rnd(price + 2 * R, tick(price, etf), True)
+                tr = trail_for(price, stop, etf)
+                pos["positions"][code] = {"name": name, "buy_price": price, "qty": qty, "stop": stop,
+                                          "target": target, "trail": tr, "R0": R, "opened": f"{today} {hhmm}"}
+                pos.setdefault("entries", {})
+                pos["entries"][today] = pos["entries"].get(today, 0) + 1
+                changed = True
+                lines = [f"✅ 보유 등록: {name} {qty}주 @{price:,}",
+                         f"조건주문(익절·손절, 시장가, 당일): {target:,}원 이상 / {stop:,}원 이하",
+                         f"1R {R:,}원 · 위험 약 {R*qty:,}원"]
+                lines += [f"🔼 {x['at']:,} 도달 → 손절 {x['stop']:,}" for x in tr]
+                lines.append(f"오늘 진입 {pos['entries'][today]}/{MAX_ENTRIES}회")
+                out.append("\n".join(lines))
+            elif cmd in ("/sell", "매도"):
+                code, price = parts[1], int(parts[2].replace(",", ""))
+                h = pos["positions"].get(code)
+                if not h:
+                    out.append(f"❓ {code} 보유 기록이 없어요")
+                    continue
+                qty = int(parts[3]) if len(parts) > 3 else h["qty"]
+                pnl = (price - h["buy_price"]) * qty
+                R0 = h.get("R0") or (h["buy_price"] - h["stop"]) or 1
+                os.makedirs("data", exist_ok=True)
+                new = not os.path.exists(TRADES_PATH)
+                with open(TRADES_PATH, "a", newline="", encoding="utf-8") as f:
+                    w = csv.writer(f)
+                    if new:
+                        w.writerow(["date", "time", "code", "name", "buy", "sell", "qty", "pnl", "R"])
+                    w.writerow([today, hhmm, code, h["name"], h["buy_price"], price, qty, pnl,
+                                round((price - h["buy_price"]) / R0, 2)])
+                pos["cash"] = pos.get("cash", 0) + pnl
+                if qty >= h["qty"]:
+                    del pos["positions"][code]
+                else:
+                    h["qty"] -= qty
+                changed = True
+                day, week = pnl_summary(today)
+                out.append(f"📒 매도 기록: {h['name']} {qty}주 @{price:,} → {pnl:+,}원\n오늘 {day:+,}원 · 이번 주 {week:+,}원 · 현금 약 {pos['cash']:,}원")
+            elif cmd in ("/stop", "손절"):
+                code, stop = parts[1], int(parts[2].replace(",", ""))
+                h = pos["positions"].get(code)
+                if not h:
+                    out.append(f"❓ {code} 보유 기록이 없어요")
+                    continue
+                h.setdefault("R0", h["buy_price"] - h["stop"])
+                h["stop"] = stop
+                h["trail"] = [x for x in h.get("trail", []) if x["stop"] > stop]
+                changed = True
+                out.append(f"🔼 {h['name']} 손절가 {stop:,}원으로 기록")
+            elif cmd in ("/status", "상태"):
+                day, week = pnl_summary(today)
+                hs = [f"- {h['name']} {h['qty']}주 @{h['buy_price']:,} 손절 {h['stop']:,} 익절 {h['target']:,}"
+                      for h in pos["positions"].values()] or ["- 보유 없음"]
+                out.append("\n".join(["📋 현황"] + hs + [
+                    f"오늘 {day:+,}원 (한도 {DAY_LIMIT:,}) · 이번 주 {week:+,}원 (한도 {WEEK_LIMIT:,})",
+                    f"오늘 진입 {pos.get('entries', {}).get(today, 0)}/{MAX_ENTRIES}회 · 현금 약 {pos.get('cash', 0):,}원"]))
+            elif cmd in ("/help", "도움말"):
+                out.append("명령어\n/buy 코드 체결가 수량 [손절가 익절가]\n/sell 코드 체결가 [수량]\n/stop 코드 새손절가\n/status")
+        except (IndexError, ValueError):
+            out.append("❓ 형식 확인: /buy 122630 59190 7  ·  /sell 122630 61940  ·  /stop 122630 59880")
+    json.dump({"offset": off}, open(off_path, "w"))
+    if changed:
+        save_pos(pos)
+    return out
+
+
 def main():
     mode = os.environ.get("MODE", "check")
     if mode == "message":  # 텍스트를 그대로 텔레그램으로 전송
@@ -285,20 +503,35 @@ def main():
         premarket(token, today)
         return
     cfg = json.load(open("watchlist.json", encoding="utf-8"))
+    plans_path = f"{STATE_DIR}/plans_{today}.json"
+    plans = json.load(open(plans_path)) if os.path.exists(plans_path) else {}
+    pre_msgs = tg_commands(today, hhmm, cfg, plans) if mode == "check" else []
+    pos = load_pos()
+    apply_positions(cfg, pos)
 
     # 시가 범위(09:00~09:30 고가·저가): 09:30까지 계속 갱신, 이후 고정
     or_path = f"{STATE_DIR}/or_{today}.json"
     orng = json.load(open(or_path)) if os.path.exists(or_path) else {}
     alert_path = f"{STATE_DIR}/alerts_{today}.json"
     sent = json.load(open(alert_path)) if os.path.exists(alert_path) else []
-    rows, msgs = [], []
+    rows, msgs = [], list(pre_msgs)
     quotes = {}
+    idx_now = {}
+    pend_path = f"{STATE_DIR}/pending_{today}.json"
+    pending = json.load(open(pend_path)) if os.path.exists(pend_path) else {}
 
     for idx in cfg.get("indices", []):
         p = index_price(token, idx["code"])
         time.sleep(0.6)
         if p:
             rows.append([hhmm, idx["name"], p["price"], p["change_pct"], "", "", "", ""])
+            idx_now[idx["code"]] = p["price"]
+            if hhmm <= "09:30":
+                k = "IDX_" + idx["code"]
+                h0, l0 = orng.get(k, [p["price"], p["price"]])
+                hi_ = max(h0, p["high"] or p["price"], p["price"])
+                lo_ = min(l0, p["low"] or p["price"], p["price"])
+                orng[k] = [hi_, lo_]
 
     for s in cfg["stocks"]:
         p = stock_price(token, s["code"])
@@ -328,8 +561,48 @@ def main():
         # 시가 범위 돌파 신호 (orb: true 종목) — 09:30 이후, VWAP과 같은 방향일 때만
         rng = orng.get(s["code"])
         if s.get("orb") and rng and hhmm > "09:30" and p["vwap"]:
-            if p["price"] > rng[0] and p["price"] > p["vwap"]:
+            above = p["price"] > rng[0] and p["price"] > p["vwap"]
+            if above:
                 checks.append(("orb_up", f"📈 {s['name']} 시가 범위 상단 돌파 ({rng[0]:,}원)\n현재 {p['price']:,}원 · VWAP {p['vwap']:,} ({p['change_pct']:+.2f}%)"))
+            # 2~3분 유지 확인 → ✅ 진입 계획 / 되돌아오면 ↩️ 가짜 돌파
+            pd = pending.get(s["code"])
+            if above and not pd:
+                pending[s["code"]] = {"t": hhmm, "level": rng[0]}
+            elif above and pd and pd["t"] != hhmm and f"{s['code']}_confirm" not in sent:
+                why = []
+                ic = INDEX_COND.get(s["code"])
+                if ic:
+                    ir, iv = orng.get("IDX_" + ic[0]), idx_now.get(ic[0])
+                    if ir and iv is not None:
+                        if ic[1] == "below_low" and not iv < ir[1]:
+                            why.append(f"지수가 시가 범위 하단({ir[1]:,.2f}) 아래가 아님")
+                        if ic[1] == "above_mid" and not iv > (ir[0] + ir[1]) / 2:
+                            why.append("지수가 시가 범위 중간 아래")
+                if hhmm > "14:30":
+                    why.append("14:30 이후")
+                if pos.get("entries", {}).get(today, 0) >= MAX_ENTRIES:
+                    why.append(f"오늘 진입 {MAX_ENTRIES}회 다 씀")
+                dsum, wsum = pnl_summary(today)
+                if dsum <= DAY_LIMIT or wsum <= WEEK_LIMIT:
+                    why.append("손실 한도 도달")
+                if s.get("type") == "보유":
+                    why.append("이미 보유 중")
+                if s.get("type") == "관심":
+                    why.append("일봉 20일선 확인 필요(관심 종목)")
+                pl = make_plan(s, p, rng, pos.get("cash", 1100000))
+                if pl is None:
+                    why.append("손절 폭 대비 수량이 안 나옴")
+                sent.append(f"{s['code']}_confirm")
+                if why:
+                    msgs.append(f"[{s.get('type')}] ⏸ {s['name']} 돌파 유지 확인, 하지만 진입 보류: " + " / ".join(why) + f"\n현재 {p['price']:,}원")
+                else:
+                    plans[s["code"]] = pl
+                    msgs.append(f"[{s.get('type')}] ✅ {s['name']} 돌파 2분 이상 유지 → 진입 가능\n현재 {p['price']:,}원 · VWAP {p['vwap']:,}\n" + plan_text(pl))
+            elif not above and pd:
+                pending.pop(s["code"], None)
+                if p["price"] <= rng[0] and f"{s['code']}_fake" not in sent and f"{s['code']}_confirm" not in sent:
+                    sent.append(f"{s['code']}_fake")
+                    msgs.append(f"[{s.get('type')}] ↩️ {s['name']} 가짜 돌파: {rng[0]:,}원 아래로 복귀 ({p['price']:,}원) → 진입하지 마세요")
             elif p["price"] < rng[1] and p["price"] < p["vwap"]:
                 checks.append(("orb_down", f"📉 {s['name']} 시가 범위 하단 이탈 ({rng[1]:,}원)\n현재 {p['price']:,}원 · VWAP {p['vwap']:,} ({p['change_pct']:+.2f}%)"))
         # 단타 원칙: 보유 종목은 15:15에 당일 청산 알림
@@ -366,6 +639,8 @@ def main():
 
     json.dump(sent, open(alert_path, "w"))
     json.dump(orng, open(or_path, "w"))
+    json.dump(pending, open(pend_path, "w"))
+    json.dump(plans, open(plans_path, "w"))
 
     os.makedirs("data", exist_ok=True)
     path = f"data/{today}.csv"

@@ -59,7 +59,7 @@ jobs:
           git config user.name "stock-bot"
           git config user.email "stock-bot@users.noreply.github.com"
           save() {
-            git add data/
+            git add data/ positions.json
             git diff --cached --quiet || git commit -q -m "data $(date -u +%F_%H%M)"
             for i in 1 2 3; do git pull --rebase -q origin main && git push -q && break; sleep 5; done
           }
@@ -96,7 +96,7 @@ jobs:
         run: |
           git config user.name "stock-bot"
           git config user.email "stock-bot@users.noreply.github.com"
-          git add data/ watchlist.json
+          git add data/ watchlist.json positions.json
           git diff --cached --quiet || git commit -m "data $(date -u +%F_%H%M)"
           for i in 1 2 3; do
             git pull --rebase -q origin main && git push -q && break
