@@ -400,7 +400,7 @@ def make_plan(s, p, rng, cash):
     entry = rnd(hi * 1.003, t, True) if chase else max(p["price"], hi + t)
     entry = rnd(entry, t, True)
     width = (hi - lo) / hi if hi else 0
-    if etf or width <= 0.03:
+    if width <= (0.025 if etf else 0.03):
         stop = lo - tick(lo, etf)
     else:  # 범위가 넓으면 중간값
         stop = rnd((hi + lo) / 2, tick(lo, etf))
