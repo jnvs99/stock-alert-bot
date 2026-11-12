@@ -61,7 +61,7 @@ jobs:
           save() {
             git add data/ positions.json
             git diff --cached --quiet || git commit -q -m "data $(date -u +%F_%H%M)"
-            for i in 1 2 3; do git pull --rebase -q origin main && git push -q && break; sleep 5; done
+            for i in 1 2 3; do (git pull --rebase -q -X theirs origin main || git rebase --abort) && git push -q && break; sleep 5; done
           }
           now() { TZ=Asia/Seoul date +%H%M; }
           # 실행 한도(6시간)는 작업 시작부터 계산되므로, 대기 시간도 포함해서 잼
@@ -99,6 +99,6 @@ jobs:
           git add data/ watchlist.json positions.json
           git diff --cached --quiet || git commit -m "data $(date -u +%F_%H%M)"
           for i in 1 2 3; do
-            git pull --rebase -q origin main && git push -q && break
+            (git pull --rebase -q -X theirs origin main || git rebase --abort) && git push -q && break
             sleep 5
           done
