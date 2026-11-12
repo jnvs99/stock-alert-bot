@@ -478,7 +478,19 @@ def tg_commands(today, hhmm, cfg, plans):
         m = u.get("message") or {}
         if str(m.get("chat", {}).get("id")) != str(TG_CHAT) or nowts - m.get("date", 0) > 900:
             continue
-        parts = (m.get("text") or "").strip().split()
+        text = (m.get("text") or "").strip()
+        import re
+        mm = re.search(r"(.+?)\s*주당\s*([\d,]+)원\s*(\d+)주\s*(구매|판매)\s*완료", text.replace("\n", " "))
+        if mm:
+            nm = re.sub(r"^[\d\s.*]+", "", mm.group(1)).strip()
+            code = next((s["code"] for s in cfg["stocks"] if s["name"] == nm), None) or next(
+                (c for c, h in pos["positions"].items() if h["name"] == nm), None)
+            if code:
+                text = f"{'/buy' if mm.group(4) == '구매' else '/sell'} {code} {mm.group(2)} {mm.group(3)}"
+            else:
+                out.append(f"❓ '{nm}' 종목코드를 몰라요. /buy 코드 가격 수량 으로 보내 주세요")
+                continue
+        parts = text.split()
         if not parts:
             continue
         cmd = parts[0].lower().split("@")[0]
@@ -671,6 +683,8 @@ def main():
                     why.append("손실 한도 도달")
                 if s.get("type") == "보유":
                     why.append("이미 보유 중")
+                if any(x["date"] == today and x["code"] == s["code"] and int(x["pnl"]) < 0 for x in read_trades()):
+                    why.append("오늘 손절한 종목(재매수 금지)")
                 if s.get("type") == "관심":
                     why.append("일봉 20일선 확인 필요(관심 종목)")
                 pl = make_plan(s, p, rng, pos.get("cash", 1100000))
