@@ -710,6 +710,28 @@ def main():
                 msgs.append(tag + msg + (f"\n💬 Claude: {note}" if note else ""))
                 sent.append(k)
 
+    # 손절 직후 대체안: 반대 방향·다른 주도 ETF의 시가 범위 위치와 남은 한도를 바로 보냄
+    OPP = {"122630": ["114800", "233740"], "494310": ["114800", "233740"], "488080": ["114800", "233740"],
+           "233740": ["114800", "122630"], "114800": ["122630", "233740"]}
+    for s in cfg["stocks"]:
+        if s.get("type") == "보유" and s.get("stop") and quotes.get(s["code"]) and quotes[s["code"]]["price"] <= s["stop"]:
+            k = f"{s['code']}_alt"
+            if k in sent:
+                continue
+            sent.append(k)
+            dsum, wsum = pnl_summary(today)
+            left = DAY_LIMIT - dsum - (s["buy_price"] - s["stop"]) * s.get("qty", 0)
+            lines = [f"🔁 대체안 ({s['name']} 손절 후)", f"오늘 남은 진입 {max(0, MAX_ENTRIES - pos.get('entries', {}).get(today, 0))}회 · 남은 손실 한도 약 {max(0, -left):,}원",
+                     f"{s['name']}는 오늘 재매수 X"]
+            for c in OPP.get(s["code"], []):
+                q, r = quotes.get(c), orng.get(c)
+                nm = next((x["name"] for x in cfg["stocks"] if x["code"] == c), c)
+                if q and r:
+                    pos_txt = "범위 위" if q["price"] > r[0] else ("범위 아래" if q["price"] < r[1] else "범위 안")
+                    lines.append(f"- {nm} {q['price']:,}원 · 시가 범위 {r[1]:,}~{r[0]:,} ({pos_txt}) · VWAP {q['vwap']:,} → {r[0]:,} 돌파 후 ✅ 오면 진입")
+            lines.append("💬 Claude가 바로 대체 계획을 대화창에 드려요. ✅ 없으면 오늘은 여기서 끝내도 좋은 결과")
+            msgs.append("\n".join(lines))
+
     if mode == "check" and "09:30" <= hhmm <= "14:30":
         mine = {s["code"] for s in cfg["stocks"]}
         etf = ("KODEX", "TIGER", "ACE", "RISE", "SOL", "PLUS", "KOSEF", "HANARO", "KIWOOM", "1Q", "미래에셋")
