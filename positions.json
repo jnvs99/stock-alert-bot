@@ -5,14 +5,9 @@
       "name": "KODEX 인버스",
       "buy_price": 1282,
       "qty": 446,
-      "stop": 1282,
+      "stop": 1292,
       "target": 1322,
-      "trail": [
-        {
-          "at": 1312,
-          "stop": 1292
-        }
-      ],
+      "trail": [],
       "R0": 20,
       "opened": "2026-11-16 09:48"
     }
