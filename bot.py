@@ -572,6 +572,7 @@ def tg_commands(today, hhmm, cfg, plans):
 
 
 def main():
+    global MAX_ENTRIES
     mode = os.environ.get("MODE", "check")
     if mode == "message":  # 텍스트를 그대로 텔레그램으로 전송
         tg(os.environ.get("MESSAGE", "").replace("\\n", "\n"))
@@ -595,6 +596,7 @@ def main():
                 time.sleep(0.6)
         return
     cfg = json.load(open("watchlist.json", encoding="utf-8"))
+    MAX_ENTRIES = int(cfg.get("max_entries", MAX_ENTRIES))  # 하루 최대 진입(watchlist에서 조정)
     plans_path = f"{STATE_DIR}/plans_{today}.json"
     plans = json.load(open(plans_path)) if os.path.exists(plans_path) else {}
     pre_msgs = tg_commands(today, hhmm, cfg, plans) if mode in ("check", "cmd") else []
@@ -604,6 +606,8 @@ def main():
         return
     pos = load_pos()
     apply_positions(cfg, pos)
+    # 집중 모드(11/16 본세 요청): 보유 중이거나 오늘 진입 횟수를 다 쓰면 보유 종목 알림만 보냄
+    focus = any(x.get("type") == "보유" for x in cfg["stocks"]) or pos.get("entries", {}).get(today, 0) >= MAX_ENTRIES
 
     # 시가 범위(09:00~09:30 고가·저가): 09:30까지 계속 갱신, 이후 고정
     or_path = f"{STATE_DIR}/or_{today}.json"
@@ -630,6 +634,7 @@ def main():
                 orng[k] = [hi_, lo_]
 
     for s in cfg["stocks"]:
+        n_before = len(msgs)
         p = stock_price(token, s["code"])
         quotes[s["code"]] = p
         time.sleep(0.6)
@@ -723,6 +728,8 @@ def main():
                     note = f"손절선 근접. 조건주문 손절가({s['stop']:,}) 걸려 있는지 확인. 추가 매수 X. 계획 손절가 외 즉석 정리 X."
                 msgs.append(tag + msg + (f"\n💬 Claude: {note}" if note else ""))
                 sent.append(k)
+        if focus and s.get("type") != "보유":
+            del msgs[n_before:]  # 집중 모드: 보유 아닌 종목의 신호는 보내지 않음(기록만)
 
     # 손절 직후 대체안: 반대 방향·다른 주도 ETF의 시가 범위 위치와 남은 한도를 바로 보냄
     OPP = {"122630": ["114800", "233740"], "494310": ["114800", "233740"], "488080": ["114800", "233740"],
@@ -746,7 +753,7 @@ def main():
             lines.append("💬 Claude가 바로 대체 계획을 대화창에 드려요. ✅ 없으면 오늘은 여기서 끝내도 좋은 결과")
             msgs.append("\n".join(lines))
 
-    if mode == "check" and "09:30" <= hhmm <= "14:30":
+    if mode == "check" and "09:30" <= hhmm <= "14:30" and not focus:
         mine = {s["code"] for s in cfg["stocks"]}
         etf = ("KODEX", "TIGER", "ACE", "RISE", "SOL", "PLUS", "KOSEF", "HANARO", "KIWOOM", "1Q", "미래에셋")
         n_surge = 0
