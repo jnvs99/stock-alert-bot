@@ -651,9 +651,13 @@ def main():
             checks.append(("caution", f"🟠 {s['name']} 손절선 근접 ({s['stop']:,}원까지 {p['price'] - s['stop']:,}원)\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%)"))
         # 보유 종목: 수익이 나면 손절가를 올리라고 알림 (trail: [{"at":가격,"stop":새 손절가}])
         if s.get("type") == "보유":
+            # 2분 간격 사이에 찍고 내려온 고가도 잡기(11/16 1,302 놓침): 보유 등록 후 당일 고가가 갱신됐으면 고가 기준
+            hk = f"_hi0_{s['code']}_{s.get('buy_price')}"
+            plans.setdefault(hk, p["high"] or p["price"])
+            peak = max(p["price"], p["high"]) if p["high"] and p["high"] > plans[hk] else p["price"]
             for t in s.get("trail", []):
-                if p["price"] >= t["at"] and (s.get("stop") or 0) < t["stop"]:
-                    checks.append((f"trail{t['at']}", f"🔼 {s['name']} {t['at']:,}원 도달 → 손절가를 {t['stop']:,}원으로 올리세요\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%) · 토스 조건주문 손절가 수정"))
+                if peak >= t["at"] and (s.get("stop") or 0) < t["stop"]:
+                    checks.append((f"trail{t['at']}", f"🔼 {s['name']} {t['at']:,}원 도달 → 손절가를 {t['stop']:,}원으로 올리세요\n고가 {peak:,}원 · 현재 {p['price']:,}원 ({p['change_pct']:+.2f}%) · 토스 조건주문 손절가 수정"))
         lo, hi = s.get("entry_low"), s.get("entry_high")
         if lo and hi and lo <= p["price"] <= hi:
             checks.append(("entry", f"🟢 {s['name']} 진입 구간 도달 ({lo:,}~{hi:,}원)\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%) · 손절 {s.get('stop') or 0:,} / 목표 {s.get('target') or 0:,}"))
