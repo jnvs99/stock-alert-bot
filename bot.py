@@ -316,9 +316,11 @@ def trail_for(entry, stop, etf):
     R = entry - stop
     t = tick(entry, etf)
     if R / entry < 0.015:  # 1R이 작은 종목은 +1.5R에서 본전 (플레이북 규칙 11)
-        return [{"at": rnd(entry + 1.5 * R, t, True), "stop": entry}]
+        return [{"at": rnd(entry + 1.5 * R, t, True), "stop": entry},
+                {"at": rnd(entry + 2 * R, t, True), "stop": rnd(entry + 1.5 * R, t)}]
     return [{"at": rnd(entry + R, t, True), "stop": entry},
-            {"at": rnd(entry + 1.5 * R, t, True), "stop": rnd(entry + 0.5 * R, t)}]
+            {"at": rnd(entry + 1.5 * R, t, True), "stop": rnd(entry + 0.5 * R, t)},
+            {"at": rnd(entry + 2 * R, t, True), "stop": rnd(entry + 1.5 * R, t)}]
 
 
 def minute_bars(token, code, hhmmss):
@@ -418,6 +420,9 @@ def make_plan(s, p, rng, cash):
 def plan_text(pl):
     lines = [f"진입가(지정가) {pl['entry']:,}원 · {pl['qty']}주 · 손절 {pl['stop']:,} · 익절 {pl['target']:,}",
              f"1R {pl['R']:,}원 · 위험 약 {pl['risk']:,}원"]
+    if pl["qty"] >= 2:
+        h = pl["qty"] // 2
+        lines.append(f"익절은 절반만: {h}주 @{pl['target']:,}(2R) / 나머지 {pl['qty'] - h}주는 2R 도달 후 손절 1.5R로 올리고 15:15까지")
     for tr in pl["trail"]:
         lines.append(f"🔼 {tr['at']:,} 도달 → 손절 {tr['stop']:,}")
     if pl.get("chase"):
@@ -512,8 +517,15 @@ def tg_commands(today, hhmm, cfg, plans):
                 pos.setdefault("entries", {})
                 pos["entries"][today] = pos["entries"].get(today, 0) + 1
                 changed = True
-                lines = [f"✅ 보유 등록: {name} {qty}주 @{price:,}",
-                         f"조건주문(익절·손절, 시장가, 당일): {target:,}원 이상 / {stop:,}원 이하",
+                target2 = rnd(price + 4 * R, tick(price, etf), True)
+                pos["positions"][code]["target2"] = target2
+                if qty >= 2:
+                    half = qty // 2
+                    cond = [f"조건주문 ① 절반 {half}주(익절·손절, 시장가, 당일): {target:,}원 이상 / {stop:,}원 이하",
+                            f"조건주문 ② 나머지 {qty - half}주: {target2:,}원 이상 / {stop:,}원 이하 (2R 체결되면 손절가만 {rnd(price + 1.5 * R, tick(price, etf)):,}로 수정)"]
+                else:
+                    cond = [f"조건주문(익절·손절, 시장가, 당일): {target:,}원 이상 / {stop:,}원 이하"]
+                lines = [f"✅ 보유 등록: {name} {qty}주 @{price:,}"] + cond + [
                          f"1R {R:,}원 · 위험 약 {R*qty:,}원"]
                 lines += [f"🔼 {x['at']:,} 도달 → 손절 {x['stop']:,}" for x in tr]
                 lines.append(f"오늘 진입 {pos['entries'][today]}/{MAX_ENTRIES}회")
@@ -540,6 +552,8 @@ def tg_commands(today, hhmm, cfg, plans):
                     del pos["positions"][code]
                 else:
                     h["qty"] -= qty
+                    if price >= h.get("target", 10**12) and h.get("target2"):
+                        h["target"] = h["target2"]  # 절반 익절 후 나머지는 4R 또는 15:15
                 changed = True
                 day, week = pnl_summary(today)
                 out.append(f"📒 매도 기록: {h['name']} {qty}주 @{price:,} → {pnl:+,}원\n오늘 {day:+,}원 · 이번 주 {week:+,}원 · 현금 약 {pos['cash']:,}원")
