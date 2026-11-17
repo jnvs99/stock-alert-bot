@@ -722,7 +722,11 @@ def main():
                     plans[s["code"]] = pl
                     v = bar_view(token, s["code"], hhmm)
                     hot = " ⚠️ RSI 80 이상(과열) → 지정가로 눌림 대기" if v and v["rsi"] and v["rsi"] >= 80 else ""
-                    msgs.append(f"[{s.get('type')}] ✅ {s['name']} 돌파 2분 이상 유지 → 진입 가능\n현재 {p['price']:,}원 · VWAP {p['vwap']:,}{view_text(v)}{hot}\n" + plan_text(pl))
+                    if s.get("type") in ("이슈", "관심"):
+                        # 11/17 본세 헷갈림: 관찰용 종목은 계획 숫자 없이 짧게(매수는 Claude '지금' 메시지로만)
+                        msgs.append(f"👀 [{s.get('type')}·관찰용, 매수 아님] {s['name']} 돌파 유지 ({p['price']:,}원)")
+                    else:
+                        msgs.append(f"[{s.get('type')}] ✅ {s['name']} 돌파 2분 이상 유지 → 진입 가능\n현재 {p['price']:,}원 · VWAP {p['vwap']:,}{view_text(v)}{hot}\n" + plan_text(pl))
             elif not above and pd:
                 pending.pop(s["code"], None)
                 if p["price"] <= rng[0] and f"{s['code']}_fake" not in sent and f"{s['code']}_confirm" not in sent:
