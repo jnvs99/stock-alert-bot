@@ -816,7 +816,11 @@ def main():
         except Exception as e:
             msgs.append(f"📋 성적표 계산 실패: {e}")
 
+    # 11/17 본세: 텔레그램은 '내가 산 종목' 위주로. 지표·이슈·관심·급증 신호는 기록만(Claude가 골라서 대화창으로 전달)
+    quiet = cfg.get("tg_quiet", True) and mode == "check"
     for m in msgs:
+        if quiet and m.startswith(("[지표]", "[이슈]", "[관심]", "👀", "🔥")):
+            continue
         tg(m)
 
     # 보낸 알림을 기록해서 Claude 체크인 때 읽을 수 있게 함
