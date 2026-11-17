@@ -658,6 +658,8 @@ def main():
 
         checks = []
         tag = f"[{s.get('type', '보유')}] "
+        if s.get("type") in ("이슈", "관심"):
+            tag = f"👀 [{s['type']}·관찰용, 매수 아님] "  # 11/17 본세: 봇 신호와 Claude 지시가 달라 헷갈림 → 매수는 Claude '지금' 메시지로만
         if s.get("stop") and p["price"] <= s["stop"]:
             checks.append(("stop", f"🚨 {s['name']} 손절선 {s['stop']:,}원 이탈!\n현재 {p['price']:,}원 ({p['change_pct']:+.2f}%)"))
         # 보유 종목: 손절선 1% 위에 오면 미리 주의 알림 (손절가를 본전 이상으로 올린 뒤에는 생략)
