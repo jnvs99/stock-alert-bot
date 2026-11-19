@@ -474,6 +474,11 @@ def tg_commands(today, hhmm, cfg, plans):
         ups = r.json().get("result", [])
     except Exception:
         return []
+    # 11/19 본세: 텔레그램을 안 씀 → Claude가 mode=cmd + message로 명령을 대신 넣음
+    inj = os.environ.get("MESSAGE", "").strip() if os.environ.get("MODE") == "cmd" else ""
+    if inj.startswith("/"):
+        ups = [{"update_id": off, "message": {"chat": {"id": TG_CHAT}, "date": time.time(), "text": t.strip()}}
+               for t in inj.split(";") if t.strip()]
     out, changed = [], False
     pos = load_pos()
     names = {s["code"]: s["name"] for s in cfg["stocks"]}
