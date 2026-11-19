@@ -12,7 +12,12 @@ STATE_DIR = ".state"
 os.makedirs(STATE_DIR, exist_ok=True)
 
 
+TG_OFF = False  # 11/19 본세: 텔레그램 안 씀 → watchlist "tg_off": true면 발송 안 함(로그는 그대로)
+
+
 def tg(msg):
+    if TG_OFF:
+        return
     requests.post(
         f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
         data={"chat_id": TG_CHAT, "text": msg},
@@ -591,7 +596,7 @@ def tg_commands(today, hhmm, cfg, plans):
 
 
 def main():
-    global MAX_ENTRIES
+    global MAX_ENTRIES, TG_OFF
     mode = os.environ.get("MODE", "check")
     if mode == "message":  # 텍스트를 그대로 텔레그램으로 전송
         tg(os.environ.get("MESSAGE", "").replace("\\n", "\n"))
@@ -615,6 +620,7 @@ def main():
                 time.sleep(0.6)
         return
     cfg = json.load(open("watchlist.json", encoding="utf-8"))
+    TG_OFF = bool(cfg.get("tg_off", False))
     MAX_ENTRIES = int(cfg.get("max_entries", MAX_ENTRIES))  # 하루 최대 진입(watchlist에서 조정)
     plans_path = f"{STATE_DIR}/plans_{today}.json"
     plans = json.load(open(plans_path)) if os.path.exists(plans_path) else {}

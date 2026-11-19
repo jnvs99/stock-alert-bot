@@ -115,5 +115,6 @@
       }
     }
   ],
-  "max_entries": 1
+  "max_entries": 1,
+  "tg_off": true
 }
